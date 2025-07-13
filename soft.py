@@ -2,26 +2,62 @@ import asyncio
 from telethon import TelegramClient, errors
 from telethon.tl.functions.contacts import GetContactsRequest
 import os
+import socks
+import socket
 
 
-class TurboForwardSender:
+class TurboSenderWithProxy:
     def __init__(self):
         self.client = None
         self.api_id = 2040
         self.api_hash = "b18441a1ff607e10a989891a5462e627"
-        self.saved_message = None  # Сохраним сообщение для пересылки
+        self.proxy = None
+        self.saved_message = None
+
+    async def configure_proxy(self):
+        """Настройка прокси-соединения"""
+        print("\n🔌 Настройка прокси:")
+        print("1 - SOCKS5")
+        print("2 - HTTP")
+        print("3 - Без прокси")
+        choice = input("Выберите тип подключения (1-3): ").strip()
+
+        if choice == '1':
+            proxy_ip = input("IP прокси: ").strip()
+            proxy_port = int(input("Порт: ").strip())
+            proxy_user = input("Логин (если есть): ").strip() or None
+            proxy_pass = input("Пароль (если есть): ").strip() or None
+            self.proxy = (socks.SOCKS5, proxy_ip, proxy_port, True, proxy_user, proxy_pass)
+        elif choice == '2':
+            proxy_ip = input("IP прокси: ").strip()
+            proxy_port = int(input("Порт: ").strip())
+            proxy_user = input("Логин (если есть): ").strip() or None
+            proxy_pass = input("Пароль (если есть): ").strip() or None
+            self.proxy = (socks.HTTP, proxy_ip, proxy_port, True, proxy_user, proxy_pass)
+        else:
+            print("ℹ️ Используем прямое подключение")
 
     async def connect_account(self):
-        """Авторизация в аккаунте"""
-        print("\n🔐 Подключение к аккаунту...")
-        self.client = TelegramClient('session_name', self.api_id, self.api_hash)
+        """Авторизация с использованием прокси"""
+        await self.configure_proxy()
 
         try:
-            await self.client.start()
+            self.client = TelegramClient(
+                'session_name',
+                self.api_id,
+                self.api_hash,
+                proxy=self.proxy
+            )
+
+            await self.client.connect()
+
             if not await self.client.is_user_authorized():
+                print("\n🔑 Требуется авторизация")
                 phone = input("Введите номер телефона (+79991234567): ").strip()
+
                 await self.client.send_code_request(phone)
                 code = input("Введите код из Telegram: ").strip()
+
                 try:
                     await self.client.sign_in(phone=phone, code=code)
                 except errors.SessionPasswordNeededError:
@@ -29,10 +65,14 @@ class TurboForwardSender:
                     await self.client.sign_in(password=password)
 
             me = await self.client.get_me()
-            print(f"✅ Успешная авторизация: {me.first_name}")
+            print(f"\n✅ Успешная авторизация через {'прокси' if self.proxy else 'прямое'} подключение")
+            print(f"👤 Аккаунт: {me.first_name}")
             return True
+
         except Exception as e:
-            print(f"❌ Ошибка авторизации: {type(e).__name__}: {str(e)}")
+            print(f"\n❌ Ошибка подключения: {type(e).__name__}: {str(e)}")
+            if "Cannot connect to host" in str(e):
+                print("⚠️ Проверьте параметры прокси и интернет-соединение")
             return False
 
     async def create_template_message(self):
@@ -124,12 +164,18 @@ async def main():
     ╚═════╝    ╚═╝      ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
     """)
 
-    sender = TurboForwardSender()
+    sender = TurboSenderWithProxy()
     if await sender.connect_account():
         await sender.fast_forward()
 
 
 if __name__ == '__main__':
+    try:
+        import socks
+    except ImportError:
+        print("\n❌ Требуется установить PySocks: pip install pysocks")
+        exit(1)
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
