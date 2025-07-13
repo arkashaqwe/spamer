@@ -1,60 +1,48 @@
+# main.py
 import asyncio
 from telethon import TelegramClient, errors
 from telethon.tl.functions.contacts import GetContactsRequest
 import os
 import socks
-import socket
+from config import PROXY, MESSAGE, TELEGRAM
 
 
-class TurboSenderWithProxy:
+class TurboSender:
     def __init__(self):
         self.client = None
-        self.api_id = 2040
-        self.api_hash = "b18441a1ff607e10a989891a5462e627"
-        self.proxy = None
         self.saved_message = None
 
-    async def configure_proxy(self):
-        """Настройка прокси-соединения"""
-        print("\n🔌 Настройка прокси:")
-        print("1 - SOCKS5")
-        print("2 - HTTP")
-        print("3 - Без прокси")
-        choice = input("Выберите тип подключения (1-3): ").strip()
+    async def create_client(self):
+        """Создаем клиент с учетом прокси"""
+        proxy = None
 
-        if choice == '1':
-            proxy_ip = input("IP прокси: ").strip()
-            proxy_port = int(input("Порт: ").strip())
-            proxy_user = input("Логин (если есть): ").strip() or None
-            proxy_pass = input("Пароль (если есть): ").strip() or None
-            self.proxy = (socks.SOCKS5, proxy_ip, proxy_port, True, proxy_user, proxy_pass)
-        elif choice == '2':
-            proxy_ip = input("IP прокси: ").strip()
-            proxy_port = int(input("Порт: ").strip())
-            proxy_user = input("Логин (если есть): ").strip() or None
-            proxy_pass = input("Пароль (если есть): ").strip() or None
-            self.proxy = (socks.HTTP, proxy_ip, proxy_port, True, proxy_user, proxy_pass)
-        else:
-            print("ℹ️ Используем прямое подключение")
+        if PROXY['enable']:
+            if PROXY['type'] == 'socks5':
+                proxy = (socks.SOCKS5, PROXY['host'], PROXY['port'],
+                         True, PROXY['username'], PROXY['password'])
+            elif PROXY['type'] == 'http':
+                proxy = (socks.HTTP, PROXY['host'], PROXY['port'],
+                         True, PROXY['username'], PROXY['password'])
+            elif PROXY['type'] == 'mtproto':
+                proxy = (PROXY['host'], PROXY['port'], PROXY['password'])
+
+        self.client = TelegramClient(
+            TELEGRAM['session_name'],
+            TELEGRAM['api_id'],
+            TELEGRAM['api_hash'],
+            proxy=proxy
+        )
 
     async def connect_account(self):
-        """Авторизация с использованием прокси"""
-        await self.configure_proxy()
+        """Подключение к аккаунту"""
+        await self.create_client()
 
         try:
-            self.client = TelegramClient(
-                'session_name',
-                self.api_id,
-                self.api_hash,
-                proxy=self.proxy
-            )
-
             await self.client.connect()
 
             if not await self.client.is_user_authorized():
                 print("\n🔑 Требуется авторизация")
                 phone = input("Введите номер телефона (+79991234567): ").strip()
-
                 await self.client.send_code_request(phone)
                 code = input("Введите код из Telegram: ").strip()
 
@@ -65,50 +53,46 @@ class TurboSenderWithProxy:
                     await self.client.sign_in(password=password)
 
             me = await self.client.get_me()
-            print(f"\n✅ Успешная авторизация через {'прокси' if self.proxy else 'прямое'} подключение")
-            print(f"👤 Аккаунт: {me.first_name}")
+            print(f"\n✅ Авторизован как: {me.first_name}")
             return True
 
         except Exception as e:
             print(f"\n❌ Ошибка подключения: {type(e).__name__}: {str(e)}")
-            if "Cannot connect to host" in str(e):
-                print("⚠️ Проверьте параметры прокси и интернет-соединение")
             return False
 
-    async def create_template_message(self):
-        """Создаем шаблонное сообщение в Избранном"""
-        print("\n📝 Создание шаблона для рассылки...")
-        message = input("Введите текст сообщения: ")
-
-        # Сначала отправляем текст
-        await self.client.send_message('me', message)
-        print("✅ Текст сохранен в Избранное")
-
-        # Если есть APK - прикрепляем
-        apk_path = input("Введите путь к APK (или Enter чтобы пропустить): ").strip()
-        if apk_path and os.path.exists(apk_path):
-            msg = await self.client.send_file(
-                'me',
-                apk_path,
-                caption=message,
-                force_document=True
-            )
-            self.saved_message = msg
-            print(f"✅ Сообщение+APK сохранено (ID: {msg.id})")
-        else:
-            print("ℹ️ APK не прикреплен")
+    async def create_template(self):
+        """Создание шаблона сообщения"""
+        print("\n📝 Создание шаблона...")
+        try:
+            if MESSAGE['apk_path'] and os.path.exists(MESSAGE['apk_path']):
+                msg = await self.client.send_file(
+                    'me',
+                    MESSAGE['apk_path'],
+                    caption=MESSAGE['text'],
+                    force_document=True
+                )
+                self.saved_message = msg
+                print(f"✅ Сообщение+APK сохранено (ID: {msg.id})")
+            else:
+                msg = await self.client.send_message('me', MESSAGE['text'])
+                self.saved_message = msg
+                print("✅ Текст сохранен")
+        except Exception as e:
+            print(f"❌ Ошибка создания шаблона: {str(e)}")
+            return False
+        return True
 
     async def get_recipients(self):
-        """Получаем список получателей"""
-        print("\n👥 Получаем список контактов...")
+        """Получение списка получателей"""
+        print("\n👥 Получаем контакты...")
         recipients = []
 
-        # Диалоги
+        # Получаем диалоги
         async for dialog in self.client.iter_dialogs():
             if dialog.is_user and not dialog.entity.bot:
                 recipients.append(dialog.entity)
 
-        # Контакты
+        # Получаем контакты
         contacts = await self.client(GetContactsRequest(hash=0))
         if hasattr(contacts, 'users'):
             recipients.extend(contacts.users)
@@ -124,61 +108,52 @@ class TurboSenderWithProxy:
         print(f"Найдено {len(unique_recipients)} получателей")
         return unique_recipients
 
-    async def fast_forward(self):
-        """Быстрая рассылка пересылкой"""
-        if not self.saved_message:
-            await self.create_template_message()
+    async def start_mailing(self):
+        """Запуск рассылки"""
+        if not await self.create_template():
+            return
 
         recipients = await self.get_recipients()
         if not recipients:
-            print("❌ Нет получателей для рассылки")
+            print("❌ Нет получателей")
             return
 
         confirm = input(f"Начать рассылку для {len(recipients)} получателей? (y/n): ")
         if confirm.lower() != 'y':
-            print("❌ Рассылка отменена")
+            print("❌ Отменено")
             return
 
-        print("\n🚀 Начинаем БЫСТРУЮ рассылку...")
+        print("\n🚀 Начинаем рассылку...")
         success = 0
 
         for recipient in recipients:
             try:
                 await self.client.forward_messages(recipient, self.saved_message)
-                name = getattr(recipient, 'first_name', None) or getattr(recipient, 'title', f"ID:{recipient.id}")
-                print(f"✓ Переслано: {name}")
+                name = getattr(recipient, 'first_name', 'Unknown')
+                print(f"✓ Отправлено: {name}")
                 success += 1
             except Exception as e:
                 print(f"✕ Ошибка: {type(e).__name__}")
 
-        print(f"\n🔥 Рассылка завершена! Успешно: {success}/{len(recipients)}")
+        print(f"\n🔥 Готово! Успешно: {success}/{len(recipients)}")
 
 
 async def main():
-    print("""
-    ██████╗ ██╗   ██╗    █████╗ ██████╗ ██╗  ██╗ █████╗ ███████╗██╗  ██╗ █████╗ 
-    ██╔══██╗╚██╗ ██╔╝   ██╔══██╗██╔══██╗██║ ██╔╝██╔══██╗██╔════╝██║  ██║██╔══██╗
-    ██████╔╝ ╚████╔╝    ███████║██████╔╝█████╔╝ ███████║███████╗███████║███████║
-    ██╔══██╗  ╚██╔╝     ██╔══██║██╔══██╗██╔═██╗ ██╔══██║╚════██║██╔══██║██╔══██║
-    ██████╔╝   ██║      ██║  ██║██║  ██║██║  ██╗██║  ██║███████║██║  ██║██║  ██║
-    ╚═════╝    ╚═╝      ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
-    """)
-
-    sender = TurboSenderWithProxy()
+    sender = TurboSender()
     if await sender.connect_account():
-        await sender.fast_forward()
+        await sender.start_mailing()
 
 
 if __name__ == '__main__':
     try:
         import socks
     except ImportError:
-        print("\n❌ Требуется установить PySocks: pip install pysocks")
+        print("❌ Требуется PySocks: pip install pysocks")
         exit(1)
 
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n🛑 Программа прервана пользователем")
+        print("\n🛑 Остановлено пользователем")
     finally:
         input("\nНажмите Enter для выхода...")
