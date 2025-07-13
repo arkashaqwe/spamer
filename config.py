@@ -1,12 +1,14 @@
-# config.py
+
 # Настройки прокси
 PROXY = {
-    'enable': True,  # Включить прокси
-    'type': 'socks5',  # socks5/http/mtproto
-    'host': '194.55.102.135',
+    'enable': True,
+    'type': 'socks5',
+    'host': '194.55.102.135',  # Ваш белорусский прокси
     'port': 63001,
     'username': 'GXjt8nK3',
-    'password': 'ghhPdd4C'
+    'password': 'ghhPdd4C',
+    'disable_webrtc': True,  # Блокировка WebRTC
+    'force_dns': True  # Принудительный DNS через прокси
 }
 
 # Настройки сообщения

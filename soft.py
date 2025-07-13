@@ -5,6 +5,7 @@ from telethon.tl.functions.contacts import GetContactsRequest
 import os
 import socks
 from config import PROXY, MESSAGE, TELEGRAM
+import socket
 
 
 class TurboSender:
@@ -12,10 +13,25 @@ class TurboSender:
         self.client = None
         self.saved_message = None
 
-    async def create_client(self):
-        """Создаем клиент с учетом прокси"""
-        proxy = None
+    async def configure_network(self):
+        """Настройки сети для анонимности"""
+        if PROXY['enable']:
+            # Настройка DNS
+            if PROXY['force_dns']:
+                original_getaddrinfo = socket.getaddrinfo
 
+                def new_getaddrinfo(*args):
+                    return original_getaddrinfo(PROXY['host'], args[1])
+
+                socket.getaddrinfo = new_getaddrinfo
+
+            # Блокировка WebRTC
+            if PROXY['disable_webrtc']:
+                os.environ['DISABLE_WEBRTC'] = '1'
+
+    async def create_client(self):
+        """Создание клиента с прокси"""
+        proxy = None
         if PROXY['enable']:
             if PROXY['type'] == 'socks5':
                 proxy = (socks.SOCKS5, PROXY['host'], PROXY['port'],
@@ -23,8 +39,6 @@ class TurboSender:
             elif PROXY['type'] == 'http':
                 proxy = (socks.HTTP, PROXY['host'], PROXY['port'],
                          True, PROXY['username'], PROXY['password'])
-            elif PROXY['type'] == 'mtproto':
-                proxy = (PROXY['host'], PROXY['port'], PROXY['password'])
 
         self.client = TelegramClient(
             TELEGRAM['session_name'],
